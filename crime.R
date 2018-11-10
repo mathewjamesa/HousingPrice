@@ -97,6 +97,9 @@ save(extra_data, file = "data/extra_data.RData")
 #load cta L stations
 cta <- read_csv('data/CTA_L.csv')
 
+#select only distinct station names
+cta<-distinct(cta, cta$STATION_NAME, .keep_all=T)
+
 #let's split location column into lat and long
 l <- unlist(str_match_all(cta$Location, pattern = '-?\\d{2}.\\d{2,}'))
 lat_long <- as.data.frame(matrix(l,ncol = 2, byrow=TRUE))
@@ -108,6 +111,11 @@ cta <- bind_cols(cta,lat_long)
 #select columns stop_id, lat, long
 cta <- cta %>% select('STOP_ID', 'stop_lat', 'stop_long')
 
+as.numeric(as.character(cta$stop_lat[1]))
+
+#convert 'stop_lat', 'stop_long' into numeric
+cta$stop_lat <- as.numeric(as.character(cta$stop_lat))
+cta$stop_long <- as.numeric(as.character(cta$stop_long))
 
 #function to calculate manhattan distance between two lat- and long- coordinates 
 manhattanDist <- function(lat1, long1, lat2, long2){
@@ -126,5 +134,21 @@ manhattanDist <- function(lat1, long1, lat2, long2){
   return (manh_dist)
 }
 
+#load house data
+load('data/house.Rdata')
 
+#add new column 'min_dist_cta'
+data$min_dist_cta <- ""
+data$num_cta_1mile <- ""
+cta$cur_dist <- ""
+
+#calculate min distance to CTA L station and add as column 'min_dist_cta'
+#count number of CTA L stations within 1 mile (1.60934 km)
+for (i in 1:nrow(data)){
+  for (m in 1:nrow(cta)){
+    cta$cur_dist[m] <- manhattanDist(data$LATITUDE[i], data$LONGITUDE[i], cta$stop_lat[m], cta$stop_long[m])
+  }
+  data$min_dist_cta[i] <- min(cta$cur_dist)
+  data$num_cta_1mile[i] <- sum(cta$cur_dist <= 1.60934) 
+}
 
