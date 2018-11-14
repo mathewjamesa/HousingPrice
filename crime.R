@@ -90,8 +90,6 @@ extra_data <- inner_join(extra_data, life_exp, by='community_no')
 extra_data <- inner_join(extra_data, ph, by='community_no')
 extra_data <- inner_join(extra_data, socioecon, by='community_no')
 
-#save extra_data
-save(extra_data, file = "data/extra_data.RData")
 #===============================
 
 #load cta L stations
@@ -134,8 +132,12 @@ manhattanDist <- function(lat1, long1, lat2, long2){
   return (manh_dist)
 }
 
+
 #load house data
-load('data/house.Rdata')
+load('data/cleanedRedfin.Rdata')
+
+data <- data_imputed
+data_imputed <- NULL
 
 #add new column 'min_dist_cta'
 data$min_dist_cta <- ""
@@ -152,3 +154,10 @@ for (i in 1:nrow(data)){
   data$num_cta_1mile[i] <- sum(cta$cur_dist <= 1.60934) 
 }
 
+#adding extra_data (12 variables) to each observation in data
+compiled_data <- inner_join(data, extra_data, by=c('LOCATION' = 'community'))
+
+summary(compiled_data)
+
+#save compiled_data
+save(compiled_data, file = "data/compiled_data.RData")
