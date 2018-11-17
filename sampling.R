@@ -15,3 +15,5 @@ trainData <- data_model_f[trainInd,]
 testData <- data_model_f[-trainInd,]
 stopifnot(nrow(trainData) + nrow(testData) == nrow(data_model_f))
 
+save(testData, file = "data/testData.RData")
+save(trainData, file = "data/trainData.RData")
