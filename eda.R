@@ -62,12 +62,11 @@ ggplot(data_final, aes(x=PRICE)) + geom_histogram(fill="steelblue", alpha = .8) 
 #======================================
 #Bar plots of all categorical variables
 #======================================
-ggplot(data_final[,catVars], aes(PROPERTY_TYPE)) + geom_bar(fill="steelblue", alpha = .8) + ggtitle('Number of offers by property type')
+ggplot(data_final[,catVars], aes(PROPERTY_TYPE)) + geom_bar(fill="steelblue", alpha = .8) + ggtitle('Distribution of offers by property type')
 
 ## set the levels in order
 data_final <- within(data_final, LOCATION <- factor(LOCATION, levels=names(sort(table(LOCATION), decreasing=TRUE))))
-ggplot(data_final, aes(LOCATION)) + geom_bar(fill="steelblue", alpha = .8) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle('Number of offers by community')
-
+ggplot(data_final, aes(LOCATION)) + geom_bar(fill="steelblue", alpha = .8) + theme(axis.text.x = element_text(angle = 90, hjust = 1)) + ggtitle('Distribution of offers by community')
 
 #======================================
 #Spatial analysis: data preparation
