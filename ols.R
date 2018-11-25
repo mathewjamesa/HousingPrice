@@ -1,5 +1,4 @@
 #load libraries
-library('broom') #
 library('ggplot2') #plotting
 library('naniar') #visualizing NA's
 library('tidyverse') #data manipulation
@@ -9,6 +8,9 @@ library('caret') #for split train/test
 library('MASS') #for stepwise variable selection
 library('glmnet') #for lasso variable selection
 library('mctest') #to detect multicollinearity
+library('GGally') #scatterplot matrix and corr
+library('ggcorrplot') #plot correlations
+library('mgcv') #fit GAM models
 
 
 #load data
@@ -29,12 +31,12 @@ data_final$age <- 2018 - data_final$YEAR_BUILT
 data_final$age[data_final$age<0] <- 0
 data_final$YEAR_BUILT <- NULL
 
-summary(data_final$BATHS)
 
 #convert property type, beds and baths to factor
 data_final$PROPERTY_TYPE <- as.factor(data_final$PROPERTY_TYPE)
 data_final$BEDS <- as.factor(data_final$BEDS)
 data_final$BATHS <- as.factor(data_final$BATHS)
+
 
 #save not transformed data
 #save(data_final, file = 'data/df_orig.Rdata')
@@ -66,6 +68,18 @@ rmseRelMetric <- function(pred, act){
   relerr2 <- relerr^2
   rmseRel <- sqrt(mean(relerr2))
   return (rmseRel)
+}
+
+#VIF and multicollinearity diagnostics functions
+#adopted from: http://rstudio-pubs-static.s3.amazonaws.com/281194_8a861a8b5d1e4cd6a5e7be6a9cdce94d.html
+VIF <- function(linear.model, no.intercept=FALSE, all.diagnostics=FALSE, plot=FALSE) {
+  require(mctest)
+  if(no.intercept==FALSE) design.matrix <- model.matrix(linear.model)[,-1]
+  if(no.intercept==TRUE) design.matrix <- model.matrix(linear.model)
+  if(plot==TRUE) mc.plot(design.matrix,linear.model$model[1])
+  if(all.diagnostics==FALSE) output <- imcdiag(design.matrix,linear.model$model[1], method='VIF')$idiags[,1]
+  if(all.diagnostics==TRUE) output <- imcdiag(design.matrix,linear.model$model[1])
+  output
 }
 
 #==============================
@@ -102,7 +116,7 @@ modelsSummary <- data.frame(model_no=numeric(), RMSE = double(), RMS_relative_er
 #==============================
 #Model 1
 #fit MLR: 
-#all variables (-'community_no') 
+#all variables 
 #without transformation of target
 #==============================
 
@@ -228,7 +242,7 @@ res <- data.frame(model_no=2,
                   RMSE_log = rmseLog2,
                   adjR2 = fit2Sum$adj.r.squared, 
                   num_of_pred = 21, 
-                  comment = 'All vars, log(Y) transformation')
+                  comment = 'All vars, log(Y) transformation, beds&baths numeric')
 modelsSummary <- rbind(modelsSummary, res)
 
 modelsSummary
@@ -241,7 +255,7 @@ modelsSummary
 
 #we will bin the outlying number of beds and baths based on the information from boxplots to a separate category
 #and build a separate model
-#summary(as.numeric(as.character(data_final$BATHS)))
+
 
 #==============================
 #Model 3
@@ -337,51 +351,100 @@ modelsSummary <- rbind(modelsSummary, res)
 
 modelsSummary
 
-car::vif(fit3)
+
 
 #==============================
-#Model 4 - NOT VALID - OMIT
-#Compute stepwise regression
-#with log transformation of target
+#Model 4: 
+#Model3 tuning
+#Reducing multicollinearity
 #==============================
 
-data_final4 <- data_final
+#summary of the best model so far
+summary(fit3)
 
-#convert BEDS and BATHS to numeric
-data_final4$BEDS <- as.numeric(as.character(data_final$BEDS))
-data_final4$BATHS <- as.numeric(as.character(data_final$BATHS))
+#let's look on the distribution of house prices based on baths
+#side-by-side boxplots: price distribution based on number of baths
+ggplot(data=data_final3, aes(x=BATHS, y=PRICE, fill=BATHS)) + geom_boxplot() + 
+  labs(title = 'Distribution of house prices based on number of baths') + 
+  scale_y_continuous(labels = scales::comma)
 
-#setting seed
-set.seed(11222018)
+#we will do two-samples t-tests to compare mean of price between different number of baths 
 
-# Setting repeated 10-fold cross-validation
-trainCV <- trainControl(method = "cv", number = 10)
+#t-test of # of baths 1.5 and 2 means
+bf1 <- data_final3 %>% filter(BATHS==1)
+bf1.5 <- data_final3 %>% filter(BATHS==1.5)
+bf2 <- data_final3 %>% filter(BATHS==2)
+bf2.5 <- data_final3 %>% filter(BATHS==2.5)
+bf3 <- data_final3 %>% filter(BATHS==3)
+bf3.5 <- data_final3 %>% filter(BATHS==3.5)
+bf4 <- data_final3 %>% filter(BATHS==4)
+bf4.5 <- data_final3 %>% filter(BATHS==4.5)
+bf5 <- data_final3 %>% filter(BATHS=='5+')
 
-# Train model
-stepModel <- train(log(PRICE) ~., data = data_final4,
-                    method = "leapSeq", #stepwise selection
-                    tuneGrid = data.frame(nvmax = 1:21), #range of number of predictors include in the model
-                    trControl = trainCV)
+#t-test of difference in mean(price) for baths 2.5 and 3
+t.test(bf2.5$PRICE, bf3$PRICE, alternative = "two.sided", var.equal = FALSE)
 
-#model results
-stepModel$results
+#t-test of difference in mean(price) for baths 3.5 and 4
+t.test(bf3.5$PRICE, bf4$PRICE, alternative = "two.sided", var.equal = FALSE)
 
-#best model
-stepModel$bestTune
+#we conclude there is no difference in mean price for group with number of baths 2.5 and 3, 3.5 and 4 and they can be 
+#aggregated into one group
 
-summary(stepModel$finalModel)
+#bin baths ==2.5 and ==3 to group 2.5-3
+data_final3 <- data_final3 %>% mutate(bathsNew = if_else(BATHS ==2.5 | BATHS==3, '2.5-3', as.character(BATHS)))
+data_final3 <- data_final3 %>% mutate(bathsNew2 = if_else(bathsNew ==3.5 | bathsNew==4, '3.5-4', as.character(bathsNew)))
 
-coef(stepModel$finalModel, 19)
+#replace original beds and baths vars with new binned baths
+data_final3$BATHS <- data_final3$bathsNew2
+data_final3$bathsNew <- NULL
+data_final3$bathsNew2 <- NULL
 
-#let's fit the model with chosen variables
+
+#side-by-side boxplots: price distribution based on number of beds
+ggplot(data=data_final3, aes(x=BEDS, y=PRICE, fill=BEDS)) + geom_boxplot() + 
+  labs(title = 'Distribution of house prices based on number of beds') + 
+  scale_y_continuous(labels = scales::comma)
+
+
+#we will do two-samples t-tests to compare mean of price between different number of beds groups 
+
+bd0 <- data_final3 %>% filter(BEDS==0)
+bd1 <- data_final3 %>% filter(BEDS==1)
+bd2 <- data_final3 %>% filter(BEDS==2)
+bd3 <- data_final3 %>% filter(BEDS==3)
+bd4 <- data_final3 %>% filter(BEDS==4)
+bd5 <- data_final3 %>% filter(BEDS==5)
+bd6 <- data_final3 %>% filter(BEDS==6)
+bd7 <- data_final3 %>% filter(BEDS=='7+')
+
+
+#t-test between groups of # of beds 3 and 4
+t.test(bd3$PRICE, bd4$PRICE, alternative = "two.sided", var.equal = FALSE)
+
+#t-test between groups of # of beds 6 and 7+
+t.test(bd6$PRICE, bd7$PRICE, alternative = "two.sided", var.equal = FALSE)
+
+#We are 95% confident that there is no difference in mean price of group with number of beds 3 and 4.
+#Same for groups 6 and 7+
+#bin beds ==3 and ==4 to group 3-4
+data_final3 <- data_final3 %>% mutate(bedsNew = if_else(BEDS ==3 | BEDS==4, '3-4', as.character(BEDS)))
+#bin beds ==6 and ==7+ to group 6+
+data_final3 <- data_final3 %>% mutate(bedsNew2 = if_else(bedsNew ==6 | bedsNew=='7+', '6+', as.character(bedsNew)))
+
+#replace original beds var with new binned beds
+data_final3$BEDS <- data_final3$bedsNew2
+data_final3$bedsNew <- NULL
+data_final3$bedsNew2 <- NULL
+
+
+data_final4 <- data_final3
+
+
 #copy train/test data for model 4
 priceTrain4 <- data_final4[trainInd,]
 priceTest4 <- data_final4[-trainInd,]
 stopifnot(nrow(priceTrain4) + nrow(priceTest4) == nrow(data_final4))
 
-#dropping percent_level2_school and perc_housing_crowded
-priceTrain4 <- priceTrain4 %>% dplyr::select(-one_of('percent_level2_school', 'perc_housing_crowded'))
-priceTest4 <- priceTest4 %>% dplyr::select(-one_of('percent_level2_school','perc_housing_crowded'))
 
 fit4 <- lm(log(PRICE) ~., data=priceTrain4)
 fit4Sum <- summary(fit4)
@@ -415,83 +478,222 @@ ggplot(priceTest4, aes(x = predictions, y = residuals)) +
 
 rmse4 <- rmseMetric(priceTest4$predictions, priceTest4$PRICE)
 rmseRel4 <- rmseRelMetric(priceTest4$predictions, priceTest4$PRICE)
+rmseLog4 <- RMSE(log(priceTest4$predictions), log(priceTest4$PRICE))
+
 
 #add results to models summary
 res <- data.frame(model_no=4, 
                   RMSE = rmse4, 
                   RMS_relative_err = rmseRel4,
+                  RMSE_log = rmseLog4,
                   adjR2 = fit4Sum$adj.r.squared, 
-                  num_of_pred = 19, 
-                  comment = 'log(Y), stepwise drop percent_level2_school, perc_housing_crowded, BEDS&BATHS num')
+                  num_of_pred = 21, 
+                  comment = 'log(Y), optimized number of factors beds&baths')
 modelsSummary <- rbind(modelsSummary, res)
 
 modelsSummary
 
 
-#==============================
-#Model 4: NOT VALID - OMIT
-#Haileys transformed data
-#==============================
-load('data/newdata/trainData.Rdata')
-load('data/newdata/testData.Rdata')
+#let's investigate multicollinearity
+summary(fit4)
 
-fit4 <- lm(PRICE~., data=trainData)
-fit4Sum <- summary(fit4)
-fit4Sum
 
-#create diagnostic plots
-plot(fit4)
+numericVars <- c('PRICE', 'SQUARE_FEET', 'LATITUDE', 'LONGITUDE', 'min_dist_cta', 'num_cta_1mile', 
+                 'crime_per_1000', 'life_exp_2010', 'unemployment', 'perc_housing_crowded', 
+                 'perc_household_below_poverty', 'perc_16plus_unempl', 'perc_25plus_no_school_diploma', 
+                 'perc_under18_over64', 'income_per_capite', 'hardship_index',
+                 'percent_level1_school', 'percent_level2_school', 'age')
 
-#predict on test
-testData$predictions <-  predict(fit4, testData)
+corr <- round(cor(data_final4[,numericVars]), 2)
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
+
+#there are high correlation between variables:
+# life_exp_2010 and income_per_capite and hardship_index
+# perc_25plus_no_school_diploma vs hardship_index vs income_per_capite
+# perc_housing_crowded vs perc_25plus_no_school_diploma vs hardship_index
+# perc_16plus_unelp vs hardship_index vs life_exp_2010
+# unemployment vs perc_16plus_unelp vs hardship_index vs life_exp_2010
+# perc_household_below_poverty vs unemployment vs perc_16plus_unelp vs hardship_index vs life_exp_2010
+# perc_under18_over_64 vs unemployment vs perc_16plus_unelp vs perc_25plus_no_school_diploma vs hardship_index vs income_per_capite
+
+# It looks like we can remove the following variables:
+# life_exp_2010
+# income_per_capite
+# perc_25plus_no_school_diploma
+# perc_16plus_unelp
+# perc_housing_crowded
+# perc_household_below_poverty
+# perc_under18_over_64
+
+
+#let's check VIF
+VIF(fit4, all.diagnostics = T)
+
+data_final42 <- data_final4
+data_final42 <- data_final42 %>% dplyr::select(-one_of(
+  #'life_exp_2010', 
+  'unemployment', 
+  #'perc_housing_crowded',
+  'perc_household_below_poverty', 
+  'perc_16plus_unempl', 
+  'perc_25plus_no_school_diploma',
+  #'perc_under18_over64', 
+  'hardship_index',
+  'income_per_capite'
+))
+
+
+#copy train/test data for model 42
+priceTrain42 <- data_final42[trainInd,]
+priceTest42 <- data_final42[-trainInd,]
+stopifnot(nrow(priceTrain42) + nrow(priceTest42) == nrow(data_final42))
+
+
+#fit new model without dropped vars
+fit42 <- lm(log(PRICE) ~ ., data=priceTrain42)
+fit42Sum <- summary(fit42)
+fit42Sum
+
+VIF(fit42, all.diagnostics = T)
+
+#We've removed all variables with multicollinearity
+#let's check correlation plot for variables left
+
+numericVars2 <- c('PRICE', 'SQUARE_FEET', 'LATITUDE', 'LONGITUDE', 'min_dist_cta', 'num_cta_1mile', 
+                 'crime_per_1000', 'life_exp_2010', 'perc_housing_crowded', 
+                 'perc_under18_over64', 'percent_level1_school', 'percent_level2_school', 'age')
+
+corr <- round(cor(data_final4[,numericVars2]), 2)
+ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
+
+plot(fit42)
+
+#predict on existing data
+priceTest42$logPredictions <-  predict(fit42, priceTest42)
+
+#convert log predictions to monetary units
+priceTest42$predictions <- exp(priceTest42$logPredictions)
 
 #plot predictions vs actual
-ggplot(testData, aes(x = predictions, y = PRICE)) + 
+ggplot(priceTest42, aes(x = predictions, y = PRICE)) + 
   geom_point() + geom_abline(color = "blue") +
-  ggtitle('Model1: House prices prediction vs actual') + 
+  ggtitle('Model42: House prices prediction vs actual') + 
   scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
 
 #residuals <- actual outcome - predicted outcome
-testData$residuals <- testData$PRICE-testData$predictions
+priceTest42$residuals <- priceTest42$PRICE-priceTest42$predictions
 
 #plot predictions vs residuals
-ggplot(testData, aes(x = predictions, y = residuals)) + 
+ggplot(priceTest42, aes(x = predictions, y = residuals)) + 
   geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
   geom_hline(yintercept = 0, linetype = 3) + 
-  ggtitle("Model4: residuals vs. linear model prediction") + 
+  ggtitle("Model42: residuals vs. linear model prediction") + 
   scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
 
-#calculate rmse and rmse.relative for training
-rmse4 <- rmseMetric(testData$predictions, testData$PRICE)
-rmseRel4 <- rmseRelMetric(testData$predictions, testData$PRICE)
 
+rmse42 <- rmseMetric(priceTest42$predictions, priceTest42$PRICE)
+rmseRel42 <- rmseRelMetric(priceTest42$predictions, priceTest42$PRICE)
+rmseLog42 <- RMSE(log(priceTest42$predictions), log(priceTest42$PRICE))
 
 
 #add results to models summary
-res <- data.frame(model_no=4, 
-                  RMSE = rmse4, 
-                  RMS_relative_err = rmseRel4, 
-                  adjR2 = fit4Sum$adj.r.squared, 
-                  num_of_pred = 55, 
-                  comment = 'Transformed Y and X')
+res <- data.frame(model_no=42, 
+                  RMSE = rmse42, 
+                  RMS_relative_err = rmseRel42,
+                  RMSE_log = rmseLog42,
+                  adjR2 = fit42Sum$adj.r.squared, 
+                  num_of_pred = 15, 
+                  comment = 'model4 with multicollinearity removed')
 modelsSummary <- rbind(modelsSummary, res)
+
+modelsSummary
+
+#==============================
+#Model5:
+# GAM
+#==============================
+
+#copy data for model
+data_final5 <- data_final42
+
+#copy train/test data for model 5
+priceTrain5 <- data_final5[trainInd,]
+priceTest5 <- data_final5[-trainInd,]
+stopifnot(nrow(priceTrain5) + nrow(priceTest5) == nrow(data_final5))
+
+
+#let's first create scatterplot matrix
+ggpairs(data_final5[,numericVars2])
+
+
+# Create the formula 
+(fmla.gam <- log(PRICE) ~ SQUARE_FEET + s(LATITUDE,LONGITUDE) + s(min_dist_cta) + 
+    s(num_cta_1mile) + s(crime_per_1000) + life_exp_2010 + perc_housing_crowded +
+     s(perc_under18_over64) + s(percent_level1_school) + s(percent_level2_school) + s(age) + 
+    PROPERTY_TYPE + BEDS + BATHS)
+
+# Fit the GAM Model
+fit5 <- gam(fmla.gam, family='gaussian', priceTrain5)
+
+#gam model summary
+fit5Sum <- summary(fit5)
+fit5Sum$r.sq
+
+# plots of vars
+plot(fit5)
+
+
+# Get predictions from best linear model - model 42
+priceTest5$predLog.lin <- predict(fit42, newdata = priceTest5)
+
+# Get predictions from gam model - fit5
+priceTest5$predLog.gam <- as.numeric(predict(fit5, newdata = priceTest5))
+
+priceTest5$pred.lin <- exp(priceTest5$predLog.lin)
+priceTest5$pred.gam <- exp(priceTest5$predLog.gam)
+
+#residuals <- actual outcome - predicted outcome
+priceTest5$residuals <- priceTest5$PRICE-priceTest5$pred.gam
+
+
+
+#Gather the predictions into a "long" dataset
+price5 <- priceTest5 %>%
+  gather(key = modeltype, value = pred, pred.lin, pred.gam)
+
+# Calculate the rmse by model
+price5 %>%
+  mutate(residual = PRICE - pred) %>%     # residuals
+  group_by(modeltype) %>%                  # group by modeltype
+  summarize(rmse = sqrt(mean(residual^2))) # calculate the RMSE
+
+
+rmse5 <- rmseMetric(priceTest5$pred.gam, priceTest5$PRICE)
+rmseRel5 <- rmseRelMetric(priceTest5$pred.gam, priceTest5$PRICE)
+rmseLog5 <- RMSE(log(priceTest5$pred.gam), log(priceTest5$PRICE))
+
+
+#add results to models summary
+res <- data.frame(model_no=5, 
+                  RMSE = rmse5, 
+                  RMS_relative_err = rmseRel5,
+                  RMSE_log = rmseLog5,
+                  adjR2 = fit5Sum$r.sq, 
+                  num_of_pred = 15, 
+                  comment = 'Generalized additive model')
+modelsSummary <- rbind(modelsSummary, res)
+
 modelsSummary
 
 
 #==============================
-#Model 5:
 #Lasso variable selection
 #==============================
 
-data_final5 <- data_final
+data_final6 <- data_final42
 
-#we will treat BEDS and BATHS for this model as numeric
-data_final5$BEDS <- as.numeric(as.character(data_final5$BEDS))
-data_final5$BATHS <- as.numeric(as.character(data_final5$BATHS))
-
-
-x=model.matrix(PRICE~.-1,data=data_final5) 
-y=data_final5$PRICE
+x=model.matrix(PRICE~.-1,data=data_final6) 
+y=data_final6$PRICE
 
 #use trainInd to split to train/test data
 lasso.tr <- glmnet(x[trainInd, ], y[trainInd])
@@ -501,7 +703,7 @@ pred <- predict(lasso.tr, x[-trainInd, ])
 dim(pred)
 
 rmse <- sqrt( apply((y[-trainInd]-pred)^2, 2, mean) )
-plot(log(lasso.tr$lambda), mse, type="b", xlab="Log(lambda)")
+plot(log(lasso.tr$lambda), rmse, type="b", xlab="Log(lambda)")
 
 lam.best <- lasso.tr$lambda[order(rmse)[1]]
 lam.best
@@ -509,192 +711,27 @@ lam.best
 coef(lasso.tr, s=lam.best)
 
 
-#drop columns not outputed by lasso
-data_final5 <- data_final5 %>% dplyr::select(-one_of('LATITUDE', 'life_exp_2010', 'unemployment', 
-                                                    'perc_household_below_poverty','hardship_index'))
-
-
-#convert beds and baths to numeric
-data_final5$BEDS <- as.numeric(as.character(data_final5$BEDS))
-data_final5$BATHS <- as.numeric(as.character(data_final5$BATHS))
-
-#bin beds>=7 to group 7+
-data_final5 <- data_final5 %>% mutate(bedsBinned = if_else(BEDS >=7, '7+', as.character(BEDS)))
-
-#bin baths>=5 to group 5+
-data_final5 <- data_final5 %>% mutate(bathsBinned = if_else(BATHS >=5, '5+', as.character(BATHS)))
-
-#replace original beds and baths vars with binned
-data_final5$BEDS <- data_final5$bedsBinned
-data_final5$bedsBinned <- NULL
-
-data_final5$BATHS <- data_final5$bathsBinned
-data_final5$bathsBinned <- NULL
-
-#finally convert them to factor
-data_final5$BEDS <- as.factor(data_final5$BEDS)
-data_final5$BATHS <- as.factor(data_final5$BATHS)
-
-
-#Doing stratified sampling on original train indices
-priceTrain5 <- data_final5[trainInd,]
-priceTest5 <- data_final5[-trainInd,]
-stopifnot(nrow(priceTrain5) + nrow(priceTest5) == nrow(data_final5))
-
-
-fit5 <- lm(log(PRICE) ~., data=priceTrain5)
-fit5Sum <- summary(fit5)
-fit5Sum
-
-#create diagnostic plots
-plot(fit5)
-
-#predict on existing data
-priceTest5$logPredictions <-  predict(fit5, priceTest5)
-
-#convert log predictions to monetary units
-priceTest5$predictions <- exp(priceTest5$logPredictions)
-
-#plot predictions vs actual
-ggplot(priceTest5, aes(x = predictions, y = PRICE)) + 
-  geom_point() + geom_abline(color = "blue") +
-  ggtitle('Model5: House prices prediction vs actual') + 
-  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
-
-#residuals <- actual outcome - predicted outcome
-priceTest5$residuals <- priceTest5$PRICE-priceTest5$predictions
-
-#plot predictions vs residuals
-ggplot(priceTest5, aes(x = predictions, y = residuals)) + 
-  geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
-  geom_hline(yintercept = 0, linetype = 3) + 
-  ggtitle("Model5: residuals vs. linear model prediction") + 
-  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
-
-
-rmse5 <- rmseMetric(priceTest5$predictions, priceTest5$PRICE)
-rmseRel5 <- rmseRelMetric(priceTest5$predictions, priceTest5$PRICE)
-rmseLog5 <- RMSE(log(priceTest5$predictions), log(priceTest5$PRICE))
-
-
-#add results to models summary
-res <- data.frame(model_no=5, 
-                  RMSE = rmse5, 
-                  RMS_relative_err = rmseRel5,
-                  RMSE_log = rmseLog5,
-                  adjR2 = fit5Sum$adj.r.squared, 
-                  num_of_pred = 16, 
-                  comment = 'All vars, log(Y) transformation, lasso var sel')
-modelsSummary <- rbind(modelsSummary, res)
-
-modelsSummary
-
-
 
 #==============================
-#Model6: 
-#MLR: simple model
+#Stepwise variable selection
 #==============================
+# Setting repeated 10-fold cross-validation
+trainCV <- trainControl(method = "cv", number = 10)
 
+# Train model
+stepModel <- train(log(PRICE) ~  + ., data = data_final42,
+                   method = "leapSeq", #stepwise selection
+                   tuneGrid = data.frame(nvmax = 1:21), #range of number of predictors include in the model
+                   trControl = trainCV)
 
+#model results
+stepModel$results
 
-pairs(data_final3[,c(1,11:20)])
+#best model - 19
+stepModel$bestTune
 
-data_final6 <- data_final3
+summary(stepModel$finalModel)
 
-#convert beds and baths to numeric
-#data_final6$BEDS <- as.numeric(as.character(data_final6$BEDS))
-#data_final6$BATHS <- as.numeric(as.character(data_final6$BATHS))
-
-
-#drop columns that are hard to interpret or collect data for
-data_final6 <- data_final6 %>% dplyr::select(-one_of('life_exp_2010', 'unemployment', 'perc_housing_crowded', 
-                                                     'perc_household_below_poverty','perc_16plus_unempl', 
-                                                     'perc_25plus_no_school_diploma', 'perc_under18_over64', 
-                                                     'income_per_capite', 'hardship_index'))
-
-#drop cases 5577, 4602, 208
-data_final6 <- data_final6[-c(5577,4602,208),]
-
-#Doing stratified sampling on original train indices
-trainInd6 <- createDataPartition(data_final6$PRICE, p = 0.8, list = FALSE)
-priceTrain6 <- data_final6[trainInd6,]
-priceTest6 <- data_final6[-trainInd6,]
-stopifnot(nrow(priceTrain6) + nrow(priceTest6) == nrow(data_final6))
-
-fit6 <- lm(log(PRICE) ~., data=priceTrain6)
-fit6Sum <- summary(fit6)
-fit6Sum
-
-#create diagnostic plots
-plot(fit6)
-
-#predict on existing data
-priceTest6$logPredictions <-  predict(fit6, priceTest6)
-
-#convert log predictions to monetary units
-priceTest6$predictions <- exp(priceTest6$logPredictions)
-
-#plot predictions vs actual
-ggplot(priceTest6, aes(x = predictions, y = PRICE)) + 
-  geom_point() + geom_abline(color = "blue") +
-  ggtitle('Model6: House prices prediction vs actual') + 
-  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
-
-#residuals <- actual outcome - predicted outcome
-priceTest6$residuals <- priceTest6$PRICE-priceTest6$predictions
-
-#plot predictions vs residuals
-ggplot(priceTest6, aes(x = predictions, y = residuals)) + 
-  geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
-  geom_hline(yintercept = 0, linetype = 3) + 
-  ggtitle("Model6: residuals vs. linear model prediction") + 
-  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
-
-
-rmse6 <- rmseMetric(priceTest6$predictions, priceTest6$PRICE)
-rmseRel6 <- rmseRelMetric(priceTest6$predictions, priceTest6$PRICE)
-rmseLog6 <- RMSE(log(priceTest6$predictions), log(priceTest6$PRICE))
-
-#add results to models summary
-res <- data.frame(model_no=6, 
-                  RMSE = rmse6, 
-                  RMS_relative_err = rmseRel6,
-                  RMSE_log = rmseLog6,
-                  adjR2 = fit6Sum$adj.r.squared, 
-                  num_of_pred = 12, 
-                  comment = '12 vars, log(Y) transformation')
-modelsSummary <- rbind(modelsSummary, res)
-
-modelsSummary
-
-
+coef(stepModel$finalModel, 19)
 
 #==============================
-#==============================
-
-
-
-#==============================
-#==============================
-
-
-
-#==============================
-#==============================
-
-
-
-#==============================
-#==============================
-
-
-
-#==============================
-#==============================
-
-
-
-#==============================
-#==============================
-
