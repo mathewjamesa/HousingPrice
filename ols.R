@@ -15,32 +15,11 @@ library('mgcv') #fit GAM models
 
 #load data
 getwd()
-load('data_final1122.Rdata')
+setwd('/Users/mikhailrybalchenko/Documents/Projects/HousePrices/')
+load('data/data_final_ols.Rdata')
 
-#do some final data preparation
-#drop some columns
-data_final <- data_final %>% dplyr::select(-one_of('ZIP','LOCATION', 'URL', 'community_no'))
-
-#Fix naming conflicts
-colnames(data_final)[colnames(data_final)=="perc_16+_unempl"] = "perc_16plus_unempl"
-colnames(data_final)[colnames(data_final)=="perc_25+_no_school_diploma"] = "perc_25plus_no_school_diploma"
-
-#Calculate building age instead of year built variable
-data_final$age <- 2018 - data_final$YEAR_BUILT
-#for buildings being built - set age to zero
-data_final$age[data_final$age<0] <- 0
-data_final$YEAR_BUILT <- NULL
-
-
-#convert property type, beds and baths to factor
-data_final$PROPERTY_TYPE <- as.factor(data_final$PROPERTY_TYPE)
-data_final$BEDS <- as.factor(data_final$BEDS)
-data_final$BATHS <- as.factor(data_final$BATHS)
-
-
-#save not transformed data
-#save(data_final, file = 'data/df_orig.Rdata')
-
+#drop community_no column
+data_final <- data_final %>% dplyr::select(-one_of('community_no'))
 
 #==============================
 #Define functions
@@ -94,7 +73,6 @@ priceTrain <- data_final[trainInd,]
 priceTest <- data_final[-trainInd,]
 stopifnot(nrow(priceTrain) + nrow(priceTest) == nrow(data_final))
 
-
 #==============================
 #Create DF for models parameters and metrics achieved
 #==============================
@@ -114,66 +92,66 @@ modelsSummary <- data.frame(model_no=numeric(), RMSE = double(), RMS_relative_er
 
 
 #==============================
-#Model 1
+#Model 0
 #fit MLR: 
 #all variables 
 #without transformation of target
 #==============================
 
-#copy train/test data for model 1
-priceTrain1 <- priceTrain
-priceTest1 <- priceTest
+#copy train/test data for model 0
+priceTrain0 <- priceTrain
+priceTest0 <- priceTest
 
 #we will treat BEDS and BATHS for this model as numeric
-priceTrain1$BEDS <- as.numeric(as.character(priceTrain1$BEDS))
-priceTest1$BEDS <- as.numeric(as.character(priceTest1$BEDS))
-priceTrain1$BATHS <- as.numeric(as.character(priceTrain1$BATHS))
-priceTest1$BATHS <- as.numeric(as.character(priceTest1$BATHS))
+priceTrain0$BEDS <- as.numeric(as.character(priceTrain0$BEDS))
+priceTest0$BEDS <- as.numeric(as.character(priceTest0$BEDS))
+priceTrain0$BATHS <- as.numeric(as.character(priceTrain0$BATHS))
+priceTest0$BATHS <- as.numeric(as.character(priceTest0$BATHS))
 
-fit1 <- lm(PRICE~., data=priceTrain1)
-fit1Sum <- summary(fit1)
-fit1Sum
+fit0 <- lm(PRICE~., data=priceTrain0)
+fit0Sum <- summary(fit0)
+fit0Sum
 
 #create diagnostic plots
-plot(fit1)
+plot(fit0)
 
 #predict on test
-priceTest1$predictions <-  predict(fit1, priceTest1)
+priceTest0$predictions <-  predict(fit0, priceTest0)
 
 #plot predictions vs actual
-ggplot(priceTest1, aes(x = predictions, y = PRICE)) + 
+ggplot(priceTest0, aes(x = predictions, y = PRICE)) + 
   geom_point() + geom_abline(color = "blue") +
-  ggtitle('Model1: House prices prediction vs actual') + 
+  ggtitle('Model0: House prices prediction vs actual') + 
   scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
 
 #residuals <- actual outcome - predicted outcome
-priceTest1$residuals <- priceTest1$PRICE-priceTest1$predictions
+priceTest0$residuals <- priceTest0$PRICE-priceTest0$predictions
 
 #plot predictions vs residuals
-ggplot(priceTest1, aes(x = predictions, y = residuals)) + 
+ggplot(priceTest0, aes(x = predictions, y = residuals)) + 
   geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
   geom_hline(yintercept = 0, linetype = 3) + 
-  ggtitle("Model1: residuals vs. linear model prediction") + 
+  ggtitle("Model0: residuals vs. linear model prediction") + 
   scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
 
 #calculate rmse and rmse.relative for training
-rmse1 <- rmseMetric(priceTest1$predictions, priceTest1$PRICE)
-rmseRel1 <- rmseRelMetric(priceTest1$predictions, priceTest1$PRICE)
-rmseLog1 <- RMSE(log(priceTest1$predictions), log(priceTest1$PRICE))
+rmse0 <- rmseMetric(priceTest0$predictions, priceTest0$PRICE)
+rmseRel0 <- rmseRelMetric(priceTest0$predictions, priceTest0$PRICE)
+rmseLog0 <- RMSE(log(priceTest0$predictions), log(priceTest0$PRICE))
 
 #add results to models summary
-res <- data.frame(model_no=1, 
-                  RMSE = rmse1, 
-                  RMS_relative_err = rmseRel1, 
-                  RMSE_log = rmseLog1,
-                  adjR2 = fit1Sum$adj.r.squared, 
-                  num_of_pred = 21, 
+res <- data.frame(model_no=0, 
+                  RMSE = rmse0, 
+                  RMS_relative_err = rmseRel0, 
+                  RMSE_log = rmseLog0,
+                  adjR2 = fit0Sum$adj.r.squared, 
+                  num_of_pred = 22, 
                   comment = 'All vars, no transformations, BEDS and BATHS numeric')
 modelsSummary <- rbind(modelsSummary, res)
 modelsSummary
 
 #==============================
-#Model 2
+#Model 1
 #fit MLR: 
 #all variables
 #beds and baths numeric
@@ -191,15 +169,124 @@ ggplot(data_final, aes(x=PRICE)) + geom_histogram(fill="steelblue", alpha = .8, 
 ggplot(data_final, aes(x=log(PRICE))) + geom_histogram(fill="steelblue", alpha = .8, show.legend = T) + 
   ggtitle('Log of House prices distribution') + scale_x_continuous(labels = scales::comma) 
 
-#copy train/test data for model 2
-priceTrain2 <- priceTrain
-priceTest2 <- priceTest
+#copy train/test data for model 1
+priceTrain1 <- priceTrain
+priceTest1 <- priceTest
 
 #we will treat BEDS and BATHS for this model as numeric
-priceTrain2$BEDS <- as.numeric(as.character(priceTrain2$BEDS))
-priceTest2$BEDS <- as.numeric(as.character(priceTest2$BEDS))
-priceTrain2$BATHS <- as.numeric(as.character(priceTrain2$BATHS))
-priceTest2$BATHS <- as.numeric(as.character(priceTest2$BATHS))
+priceTrain1$BEDS <- as.numeric(as.character(priceTrain1$BEDS))
+priceTest1$BEDS <- as.numeric(as.character(priceTest1$BEDS))
+priceTrain1$BATHS <- as.numeric(as.character(priceTrain1$BATHS))
+priceTest1$BATHS <- as.numeric(as.character(priceTest1$BATHS))
+
+fit1 <- lm(log(PRICE) ~., data=priceTrain1)
+fit1Sum <- summary(fit1)
+fit1Sum
+
+#create diagnostic plots
+plot(fit1)
+
+#predict on existing data
+priceTest1$logPredictions <-  predict(fit1, priceTest1)
+
+#convert log predictions to monetary units
+priceTest1$predictions <- exp(priceTest1$logPredictions)
+
+#plot predictions vs actual
+ggplot(priceTest1, aes(x = predictions, y = PRICE)) + 
+  geom_point() + geom_abline(color = "blue") +
+  ggtitle('Model1: House prices prediction vs actual') + 
+  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
+
+#residuals <- actual outcome - predicted outcome
+priceTest1$residuals <- priceTest1$PRICE-priceTest1$predictions
+
+#plot predictions vs residuals
+ggplot(priceTest1, aes(x = predictions, y = residuals)) + 
+  geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
+  geom_hline(yintercept = 0, linetype = 3) + 
+  ggtitle("Model1: residuals vs. linear model prediction") + 
+  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
+
+
+rmse1 <- rmseMetric(priceTest1$predictions, priceTest1$PRICE)
+rmseRel1 <- rmseRelMetric(priceTest1$predictions, priceTest1$PRICE)
+rmseLog1 <- RMSE(log(priceTest1$predictions), log(priceTest1$PRICE))
+
+#add results to models summary
+res <- data.frame(model_no=1, 
+                  RMSE = rmse1, 
+                  RMS_relative_err = rmseRel1,
+                  RMSE_log = rmseLog1,
+                  adjR2 = fit1Sum$adj.r.squared, 
+                  num_of_pred = 22, 
+                  comment = 'All vars, log(Y) transformation, beds&baths numeric')
+modelsSummary <- rbind(modelsSummary, res)
+
+modelsSummary
+
+#Comparing RMSE and root-mean-squared Relative Error (log-transforming a monetary output before modeling 
+#improves mean relative error (but increases RMSE) compared to modeling the monetary output directly
+
+#we see that residential with 10.5 baths and 12 beds appeared to be predicted to cost around $53M and all predicted values 
+#that tend the linear regression to fall to the right have outlying number of baths.
+
+#we will bin the outlying number of beds and baths based on the information from boxplots to a separate category
+#and build a separate model
+
+
+#==============================
+#Model 2
+#fit MLR: 
+#all variables
+#beds and baths factor
+#with log transformation of target
+#==============================
+
+#plot boxplots for BEDS and BATHS
+#boxplot(as.numeric(as.character(data_final$BATHS)))
+#table(as.numeric(as.character(data_final$BATHS)))
+#we will bin number of BATHS>=5 into separate group 5+
+
+#boxplot(as.numeric(as.character(data_final$BEDS)),as.numeric(as.character(data_final$BATHS)))
+#table(as.numeric(as.character(data_final$BEDS)))
+#we will bin number of BEDS>=7 into separate group 7+
+
+boxplot(as.numeric(as.character(data_final$BEDS)),as.numeric(as.character(data_final$BATHS)), names=c('Beds','Baths'))
+#we will bin number of BATHS>=5 into separate group 5+
+#we will bin number of BEDS>=7 into separate group 7+
+
+
+#assign data for model3
+data_final2 <- data_final 
+
+#convert beds and baths to numeric
+data_final2$BEDS <- as.numeric(as.character(data_final2$BEDS))
+data_final2$BATHS <- as.numeric(as.character(data_final2$BATHS))
+
+#bin beds>=7 to group 7+
+data_final2 <- data_final2 %>% mutate(bedsBinned = if_else(BEDS >=7, '7+', as.character(BEDS)))
+
+#bin baths>=5 to group 5+
+data_final2 <- data_final2 %>% mutate(bathsBinned = if_else(BATHS >=5, '5+', as.character(BATHS)))
+
+#replace original beds and baths vars with binned
+data_final2$BEDS <- data_final2$bedsBinned
+data_final2$bedsBinned <- NULL
+
+data_final2$BATHS <- data_final2$bathsBinned
+data_final2$bathsBinned <- NULL
+
+#finally convert them to factor
+data_final2$BEDS <- as.factor(data_final2$BEDS)
+data_final2$BATHS <- as.factor(data_final2$BATHS)
+
+
+#Doing stratified sampling on original train indices
+priceTrain2 <- data_final2[trainInd,]
+priceTest2 <- data_final2[-trainInd,]
+stopifnot(nrow(priceTrain2) + nrow(priceTest2) == nrow(data_final2))
+
 
 fit2 <- lm(log(PRICE) ~., data=priceTrain2)
 fit2Sum <- summary(fit2)
@@ -241,65 +328,114 @@ res <- data.frame(model_no=2,
                   RMS_relative_err = rmseRel2,
                   RMSE_log = rmseLog2,
                   adjR2 = fit2Sum$adj.r.squared, 
-                  num_of_pred = 21, 
-                  comment = 'All vars, log(Y) transformation, beds&baths numeric')
+                  num_of_pred = 22, 
+                  comment = 'All vars, log(Y), binned baths and beds')
 modelsSummary <- rbind(modelsSummary, res)
 
 modelsSummary
 
-#Comparing RMSE and root-mean-squared Relative Error (log-transforming a monetary output before modeling 
-#improves mean relative error (but increases RMSE) compared to modeling the monetary output directly
-
-#we see that residential with 10.5 baths and 12 beds appeared to be predicted to cost around $53M and all predicted values 
-#that tend the linear regression to fall to the right have outlying number of baths.
-
-#we will bin the outlying number of beds and baths based on the information from boxplots to a separate category
-#and build a separate model
 
 
 #==============================
-#Model 3
-#fit MLR: 
-#all variables
-#beds and baths factor
-#with log transformation of target
+#Model 3: 
+#Model2 tuning
+#Reducing multicollinearity
 #==============================
 
-#plot boxplots for BEDS and BATHS
-boxplot(as.numeric(as.character(data_final$BATHS)))
-table(as.numeric(as.character(data_final$BATHS)))
-#we will bin number of BATHS>=5 into separate group 5+
+#summary of the best model so far
+summary(fit2)
 
-boxplot(as.numeric(as.character(data_final$BEDS)))
-table(as.numeric(as.character(data_final$BEDS)))
-#we will bin number of BEDS>=7 into separate group 7+
+#let's look on the distribution of house prices based on baths
+#side-by-side boxplots: price distribution based on number of baths
+ggplot(data=data_final2, aes(x=BATHS, y=PRICE, fill=BATHS)) + geom_boxplot() + 
+  labs(title = 'Distribution of house prices based on number of baths') + 
+  scale_y_continuous(labels = scales::comma)
 
-#assign data for model3
-data_final3 <- data_final 
+#we will do two-samples t-tests to compare mean of price between different number of baths 
 
-#convert beds and baths to numeric
-data_final3$BEDS <- as.numeric(as.character(data_final3$BEDS))
-data_final3$BATHS <- as.numeric(as.character(data_final3$BATHS))
+#t-test of # of baths 1.5 and 2 means
+bf1 <- data_final2 %>% filter(BATHS==1)
+bf1.5 <- data_final2 %>% filter(BATHS==1.5)
+bf2 <- data_final2 %>% filter(BATHS==2)
+bf2.5 <- data_final2 %>% filter(BATHS==2.5)
+bf3 <- data_final2 %>% filter(BATHS==3)
+bf3.5 <- data_final2 %>% filter(BATHS==3.5)
+bf4 <- data_final2 %>% filter(BATHS==4)
+bf4.5 <- data_final2 %>% filter(BATHS==4.5)
+bf5 <- data_final2 %>% filter(BATHS=='5+')
 
-#bin beds>=7 to group 7+
-data_final3 <- data_final3 %>% mutate(bedsBinned = if_else(BEDS >=7, '7+', as.character(BEDS)))
+#t-test of difference in mean(price) for baths 2.5 and 3
+t.test(bf2.5$PRICE, bf3$PRICE, alternative = "two.sided", var.equal = FALSE)
 
-#bin baths>=5 to group 5+
-data_final3 <- data_final3 %>% mutate(bathsBinned = if_else(BATHS >=5, '5+', as.character(BATHS)))
+#t-test of difference in mean(price) for baths 3.5 and 4
+t.test(bf3.5$PRICE, bf4$PRICE, alternative = "two.sided", var.equal = FALSE)
 
-#replace original beds and baths vars with binned
-data_final3$BEDS <- data_final3$bedsBinned
-data_final3$bedsBinned <- NULL
+#we conclude there is no difference in mean price for group with number of baths 2.5 and 3, 3.5 and 4 and they can be 
+#aggregated into one group
 
-data_final3$BATHS <- data_final3$bathsBinned
-data_final3$bathsBinned <- NULL
+#bin baths ==2.5 and ==3 to group 2.5-3
+data_final2 <- data_final2 %>% mutate(bathsNew = if_else(BATHS ==2.5 | BATHS==3, '2.5-3', as.character(BATHS)))
+data_final2 <- data_final2 %>% mutate(bathsNew2 = if_else(bathsNew ==3.5 | bathsNew==4, '3.5-4', as.character(bathsNew)))
 
-#finally convert them to factor
-data_final3$BEDS <- as.factor(data_final3$BEDS)
-data_final3$BATHS <- as.factor(data_final3$BATHS)
+#replace original beds and baths vars with new binned baths
+data_final2$BATHS <- data_final2$bathsNew2
+data_final2$bathsNew <- NULL
+data_final2$bathsNew2 <- NULL
+
+#let's look on the distribution of house prices based on baths after relabeling
+#side-by-side boxplots: price distribution based on number of baths
+ggplot(data=data_final2, aes(x=BATHS, y=PRICE, fill=BATHS)) + geom_boxplot() + 
+  labs(title = 'Distribution of house prices based on number of baths') + 
+  scale_y_continuous(labels = scales::comma)
 
 
-#Doing stratified sampling on original train indices
+#side-by-side boxplots: price distribution based on number of beds
+ggplot(data=data_final2, aes(x=BEDS, y=PRICE, fill=BEDS)) + geom_boxplot() + 
+  labs(title = 'Distribution of house prices based on number of beds') + 
+  scale_y_continuous(labels = scales::comma)
+
+
+#we will do two-samples t-tests to compare mean of price between different number of beds groups 
+
+bd0 <- data_final2 %>% filter(BEDS==0)
+bd1 <- data_final2 %>% filter(BEDS==1)
+bd2 <- data_final2 %>% filter(BEDS==2)
+bd3 <- data_final2 %>% filter(BEDS==3)
+bd4 <- data_final2 %>% filter(BEDS==4)
+bd5 <- data_final2 %>% filter(BEDS==5)
+bd6 <- data_final2 %>% filter(BEDS==6)
+bd7 <- data_final2 %>% filter(BEDS=='7+')
+
+
+#t-test between groups of # of beds 3 and 4
+t.test(bd3$PRICE, bd4$PRICE, alternative = "two.sided", var.equal = FALSE)
+
+#t-test between groups of # of beds 6 and 7+
+t.test(bd6$PRICE, bd7$PRICE, alternative = "two.sided", var.equal = FALSE)
+
+#We are 95% confident that there is no difference in mean price of group with number of beds 3 and 4.
+#Same for groups 6 and 7+
+#bin beds ==3 and ==4 to group 3-4
+data_final2 <- data_final2 %>% mutate(bedsNew = if_else(BEDS ==3 | BEDS==4, '3-4', as.character(BEDS)))
+#bin beds ==6 and ==7+ to group 6+
+data_final2 <- data_final2 %>% mutate(bedsNew2 = if_else(bedsNew ==6 | bedsNew=='7+', '6+', as.character(bedsNew)))
+
+#replace original beds var with new binned beds
+data_final2$BEDS <- data_final2$bedsNew2
+data_final2$bedsNew <- NULL
+data_final2$bedsNew2 <- NULL
+
+
+#side-by-side boxplots: price distribution based on number of beds after relaveling
+ggplot(data=data_final2, aes(x=BEDS, y=PRICE, fill=BEDS)) + geom_boxplot() + 
+  labs(title = 'Distribution of house prices based on number of beds') + 
+  scale_y_continuous(labels = scales::comma)
+
+
+data_final3 <- data_final2
+
+
+#copy train/test data for model 3
 priceTrain3 <- data_final3[trainInd,]
 priceTest3 <- data_final3[-trainInd,]
 stopifnot(nrow(priceTrain3) + nrow(priceTest3) == nrow(data_final3))
@@ -339,155 +475,14 @@ rmse3 <- rmseMetric(priceTest3$predictions, priceTest3$PRICE)
 rmseRel3 <- rmseRelMetric(priceTest3$predictions, priceTest3$PRICE)
 rmseLog3 <- RMSE(log(priceTest3$predictions), log(priceTest3$PRICE))
 
+
 #add results to models summary
 res <- data.frame(model_no=3, 
                   RMSE = rmse3, 
                   RMS_relative_err = rmseRel3,
                   RMSE_log = rmseLog3,
                   adjR2 = fit3Sum$adj.r.squared, 
-                  num_of_pred = 21, 
-                  comment = 'All vars, log(Y), binned baths and beds')
-modelsSummary <- rbind(modelsSummary, res)
-
-modelsSummary
-
-
-
-#==============================
-#Model 4: 
-#Model3 tuning
-#Reducing multicollinearity
-#==============================
-
-#summary of the best model so far
-summary(fit3)
-
-#let's look on the distribution of house prices based on baths
-#side-by-side boxplots: price distribution based on number of baths
-ggplot(data=data_final3, aes(x=BATHS, y=PRICE, fill=BATHS)) + geom_boxplot() + 
-  labs(title = 'Distribution of house prices based on number of baths') + 
-  scale_y_continuous(labels = scales::comma)
-
-#we will do two-samples t-tests to compare mean of price between different number of baths 
-
-#t-test of # of baths 1.5 and 2 means
-bf1 <- data_final3 %>% filter(BATHS==1)
-bf1.5 <- data_final3 %>% filter(BATHS==1.5)
-bf2 <- data_final3 %>% filter(BATHS==2)
-bf2.5 <- data_final3 %>% filter(BATHS==2.5)
-bf3 <- data_final3 %>% filter(BATHS==3)
-bf3.5 <- data_final3 %>% filter(BATHS==3.5)
-bf4 <- data_final3 %>% filter(BATHS==4)
-bf4.5 <- data_final3 %>% filter(BATHS==4.5)
-bf5 <- data_final3 %>% filter(BATHS=='5+')
-
-#t-test of difference in mean(price) for baths 2.5 and 3
-t.test(bf2.5$PRICE, bf3$PRICE, alternative = "two.sided", var.equal = FALSE)
-
-#t-test of difference in mean(price) for baths 3.5 and 4
-t.test(bf3.5$PRICE, bf4$PRICE, alternative = "two.sided", var.equal = FALSE)
-
-#we conclude there is no difference in mean price for group with number of baths 2.5 and 3, 3.5 and 4 and they can be 
-#aggregated into one group
-
-#bin baths ==2.5 and ==3 to group 2.5-3
-data_final3 <- data_final3 %>% mutate(bathsNew = if_else(BATHS ==2.5 | BATHS==3, '2.5-3', as.character(BATHS)))
-data_final3 <- data_final3 %>% mutate(bathsNew2 = if_else(bathsNew ==3.5 | bathsNew==4, '3.5-4', as.character(bathsNew)))
-
-#replace original beds and baths vars with new binned baths
-data_final3$BATHS <- data_final3$bathsNew2
-data_final3$bathsNew <- NULL
-data_final3$bathsNew2 <- NULL
-
-
-#side-by-side boxplots: price distribution based on number of beds
-ggplot(data=data_final3, aes(x=BEDS, y=PRICE, fill=BEDS)) + geom_boxplot() + 
-  labs(title = 'Distribution of house prices based on number of beds') + 
-  scale_y_continuous(labels = scales::comma)
-
-
-#we will do two-samples t-tests to compare mean of price between different number of beds groups 
-
-bd0 <- data_final3 %>% filter(BEDS==0)
-bd1 <- data_final3 %>% filter(BEDS==1)
-bd2 <- data_final3 %>% filter(BEDS==2)
-bd3 <- data_final3 %>% filter(BEDS==3)
-bd4 <- data_final3 %>% filter(BEDS==4)
-bd5 <- data_final3 %>% filter(BEDS==5)
-bd6 <- data_final3 %>% filter(BEDS==6)
-bd7 <- data_final3 %>% filter(BEDS=='7+')
-
-
-#t-test between groups of # of beds 3 and 4
-t.test(bd3$PRICE, bd4$PRICE, alternative = "two.sided", var.equal = FALSE)
-
-#t-test between groups of # of beds 6 and 7+
-t.test(bd6$PRICE, bd7$PRICE, alternative = "two.sided", var.equal = FALSE)
-
-#We are 95% confident that there is no difference in mean price of group with number of beds 3 and 4.
-#Same for groups 6 and 7+
-#bin beds ==3 and ==4 to group 3-4
-data_final3 <- data_final3 %>% mutate(bedsNew = if_else(BEDS ==3 | BEDS==4, '3-4', as.character(BEDS)))
-#bin beds ==6 and ==7+ to group 6+
-data_final3 <- data_final3 %>% mutate(bedsNew2 = if_else(bedsNew ==6 | bedsNew=='7+', '6+', as.character(bedsNew)))
-
-#replace original beds var with new binned beds
-data_final3$BEDS <- data_final3$bedsNew2
-data_final3$bedsNew <- NULL
-data_final3$bedsNew2 <- NULL
-
-
-data_final4 <- data_final3
-
-
-#copy train/test data for model 4
-priceTrain4 <- data_final4[trainInd,]
-priceTest4 <- data_final4[-trainInd,]
-stopifnot(nrow(priceTrain4) + nrow(priceTest4) == nrow(data_final4))
-
-
-fit4 <- lm(log(PRICE) ~., data=priceTrain4)
-fit4Sum <- summary(fit4)
-fit4Sum
-
-#create diagnostic plots
-plot(fit4)
-
-#predict on existing data
-priceTest4$logPredictions <-  predict(fit4, priceTest4)
-
-#convert log predictions to monetary units
-priceTest4$predictions <- exp(priceTest4$logPredictions)
-
-#plot predictions vs actual
-ggplot(priceTest4, aes(x = predictions, y = PRICE)) + 
-  geom_point() + geom_abline(color = "blue") +
-  ggtitle('Model4: House prices prediction vs actual') + 
-  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
-
-#residuals <- actual outcome - predicted outcome
-priceTest4$residuals <- priceTest4$PRICE-priceTest4$predictions
-
-#plot predictions vs residuals
-ggplot(priceTest4, aes(x = predictions, y = residuals)) + 
-  geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
-  geom_hline(yintercept = 0, linetype = 3) + 
-  ggtitle("Model4: residuals vs. linear model prediction") + 
-  scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
-
-
-rmse4 <- rmseMetric(priceTest4$predictions, priceTest4$PRICE)
-rmseRel4 <- rmseRelMetric(priceTest4$predictions, priceTest4$PRICE)
-rmseLog4 <- RMSE(log(priceTest4$predictions), log(priceTest4$PRICE))
-
-
-#add results to models summary
-res <- data.frame(model_no=4, 
-                  RMSE = rmse4, 
-                  RMS_relative_err = rmseRel4,
-                  RMSE_log = rmseLog4,
-                  adjR2 = fit4Sum$adj.r.squared, 
-                  num_of_pred = 21, 
+                  num_of_pred = 22, 
                   comment = 'log(Y), optimized number of factors beds&baths')
 modelsSummary <- rbind(modelsSummary, res)
 
@@ -495,7 +490,12 @@ modelsSummary
 
 
 #let's investigate multicollinearity
-summary(fit4)
+summary(fit3)
+
+#=========
+#convert beds and baths to factor
+data_final3$BEDS <- as.factor(data_final2$BEDS)
+data_final3$BATHS <- as.factor(data_final2$BATHS)
 
 
 numericVars <- c('PRICE', 'SQUARE_FEET', 'LATITUDE', 'LONGITUDE', 'min_dist_cta', 'num_cta_1mile', 
@@ -504,106 +504,88 @@ numericVars <- c('PRICE', 'SQUARE_FEET', 'LATITUDE', 'LONGITUDE', 'min_dist_cta'
                  'perc_under18_over64', 'income_per_capite', 'hardship_index',
                  'percent_level1_school', 'percent_level2_school', 'age')
 
-corr <- round(cor(data_final4[,numericVars]), 2)
+corr <- round(cor(data_final3[,numericVars]), 2)
 ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
 
-#there are high correlation between variables:
-# life_exp_2010 and income_per_capite and hardship_index
-# perc_25plus_no_school_diploma vs hardship_index vs income_per_capite
-# perc_housing_crowded vs perc_25plus_no_school_diploma vs hardship_index
-# perc_16plus_unelp vs hardship_index vs life_exp_2010
-# unemployment vs perc_16plus_unelp vs hardship_index vs life_exp_2010
-# perc_household_below_poverty vs unemployment vs perc_16plus_unelp vs hardship_index vs life_exp_2010
-# perc_under18_over_64 vs unemployment vs perc_16plus_unelp vs perc_25plus_no_school_diploma vs hardship_index vs income_per_capite
 
-# It looks like we can remove the following variables:
-# life_exp_2010
-# income_per_capite
-# perc_25plus_no_school_diploma
-# perc_16plus_unelp
-# perc_housing_crowded
-# perc_household_below_poverty
-# perc_under18_over_64
+#==========
+#let's check VIF to remove multicollinearity
+VIF(fit3, all.diagnostics = T)
 
-
-#let's check VIF
-VIF(fit4, all.diagnostics = T)
-
-data_final42 <- data_final4
-data_final42 <- data_final42 %>% dplyr::select(-one_of(
-  #'life_exp_2010', 
+data_final32 <- data_final3
+data_final32 <- data_final32 %>% dplyr::select(-one_of(
+  'life_exp_2010', 
   'unemployment', 
-  #'perc_housing_crowded',
+  'perc_housing_crowded',
   'perc_household_below_poverty', 
   'perc_16plus_unempl', 
   'perc_25plus_no_school_diploma',
-  #'perc_under18_over64', 
-  'hardship_index',
-  'income_per_capite'
+  'perc_under18_over64', 
+  'income_per_capite',
+  'NeighRich'
 ))
 
 
-#copy train/test data for model 42
-priceTrain42 <- data_final42[trainInd,]
-priceTest42 <- data_final42[-trainInd,]
-stopifnot(nrow(priceTrain42) + nrow(priceTest42) == nrow(data_final42))
+#copy train/test data for model 32
+priceTrain32 <- data_final32[trainInd,]
+priceTest32 <- data_final32[-trainInd,]
+stopifnot(nrow(priceTrain32) + nrow(priceTest32) == nrow(data_final32))
 
 
 #fit new model without dropped vars
-fit42 <- lm(log(PRICE) ~ ., data=priceTrain42)
-fit42Sum <- summary(fit42)
-fit42Sum
+fit32 <- lm(log(PRICE) ~ ., data=priceTrain32)
+fit32Sum <- summary(fit32)
+fit32Sum
 
-VIF(fit42, all.diagnostics = T)
+VIF(fit32, all.diagnostics = T)
 
 #We've removed all variables with multicollinearity
 #let's check correlation plot for variables left
 
 numericVars2 <- c('PRICE', 'SQUARE_FEET', 'LATITUDE', 'LONGITUDE', 'min_dist_cta', 'num_cta_1mile', 
-                 'crime_per_1000', 'life_exp_2010', 'perc_housing_crowded', 
-                 'perc_under18_over64', 'percent_level1_school', 'percent_level2_school', 'age')
+                 'crime_per_1000', 'percent_level1_school', 'percent_level2_school', 'age', 'hardship_index')
 
-corr <- round(cor(data_final4[,numericVars2]), 2)
+corr <- round(cor(data_final3[,numericVars2]), 2)
 ggcorrplot(corr, hc.order = TRUE, type = "lower", lab = TRUE)
 
-plot(fit42)
+plot(fit32)
 
 #predict on existing data
-priceTest42$logPredictions <-  predict(fit42, priceTest42)
+priceTest32$logPredictions <-  predict(fit32, priceTest32)
 
 #convert log predictions to monetary units
-priceTest42$predictions <- exp(priceTest42$logPredictions)
+priceTest32$predictions <- exp(priceTest32$logPredictions)
 
 #plot predictions vs actual
-ggplot(priceTest42, aes(x = predictions, y = PRICE)) + 
+ggplot(priceTest32, aes(x = predictions, y = PRICE)) + 
   geom_point() + geom_abline(color = "blue") +
-  ggtitle('Model42: House prices prediction vs actual') + 
+  ggtitle('Model32: House prices prediction vs actual') + 
   scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
 
 #residuals <- actual outcome - predicted outcome
-priceTest42$residuals <- priceTest42$PRICE-priceTest42$predictions
+priceTest32$residuals <- priceTest32$PRICE-priceTest32$predictions
 
 #plot predictions vs residuals
-ggplot(priceTest42, aes(x = predictions, y = residuals)) + 
+ggplot(priceTest32, aes(x = predictions, y = residuals)) + 
   geom_pointrange(aes(ymin = 0, ymax = residuals)) + 
   geom_hline(yintercept = 0, linetype = 3) + 
-  ggtitle("Model42: residuals vs. linear model prediction") + 
+  ggtitle("Model3 adjusted: residuals vs. linear model prediction") + 
   scale_x_continuous(labels = scales::comma) + scale_y_continuous(labels = scales::comma)
 
 
-rmse42 <- rmseMetric(priceTest42$predictions, priceTest42$PRICE)
-rmseRel42 <- rmseRelMetric(priceTest42$predictions, priceTest42$PRICE)
-rmseLog42 <- RMSE(log(priceTest42$predictions), log(priceTest42$PRICE))
+rmse32 <- rmseMetric(priceTest32$predictions, priceTest32$PRICE)
+rmseRel32 <- rmseRelMetric(priceTest32$predictions, priceTest32$PRICE)
+rmseLog32 <- RMSE(log(priceTest32$predictions), log(priceTest32$PRICE))
 
 
 #add results to models summary
-res <- data.frame(model_no=42, 
-                  RMSE = rmse42, 
-                  RMS_relative_err = rmseRel42,
-                  RMSE_log = rmseLog42,
-                  adjR2 = fit42Sum$adj.r.squared, 
-                  num_of_pred = 15, 
-                  comment = 'model4 with multicollinearity removed')
+res <- data.frame(model_no=32, 
+                  RMSE = rmse32, 
+                  RMS_relative_err = rmseRel32,
+                  RMSE_log = rmseLog32,
+                  adjR2 = fit32Sum$adj.r.squared, 
+                  num_of_pred = 13, 
+                  comment = 'model3 with multicollinearity removed')
 modelsSummary <- rbind(modelsSummary, res)
 
 modelsSummary
@@ -628,8 +610,7 @@ ggpairs(data_final5[,numericVars2])
 
 # Create the formula 
 (fmla.gam <- log(PRICE) ~ SQUARE_FEET + s(LATITUDE,LONGITUDE) + s(min_dist_cta) + 
-    s(num_cta_1mile) + s(crime_per_1000) + life_exp_2010 + perc_housing_crowded +
-     s(perc_under18_over64) + s(percent_level1_school) + s(percent_level2_school) + s(age) + 
+    s(num_cta_1mile) + s(crime_per_1000) +  s(percent_level1_school) + s(percent_level2_school) + s(age) + NeighRich + 
     PROPERTY_TYPE + BEDS + BATHS)
 
 # Fit the GAM Model
