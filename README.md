@@ -1,2 +1,2 @@
-# HousingPrice
+# PREDICTING HOUSING PRICE IN CHICAGO, ILLINOIS
 Predict Chicago Housing Prices 
